@@ -1,0 +1,73 @@
+# generates some primary variables
+---
+
+- name: Set the primary network interface based on given IPv4 address
+  block:
+    - name: "Create Map with IP->Interface"
+      set_fact:
+        interface_map: "{{ interface_map|default({}) | combine( {hostvars[inventory_hostname]['ansible_'+item]['ipv4'].address : item} ) }}"
+      with_items:
+        - "{{ ansible_interfaces | select('match', '^(e.*)[0-9]+') | list }}"
+    - name: "Set primary network interface"
+      set_fact:
+        primary_interface: "{{ interface_map[network.ipv4.address] }}"
+      when: "interface_map[network.ipv4.address] is defined"
+  when: "network is defined and network.ipv4 is defined and network.ipv4.address is defined"
+
+- name: Set the primary network interface based on given IPv6 address
+  block:
+    - name: "Create Map of all network interfaces with there IPv6 address"
+      set_fact:
+        interface_map: "{{ interface_map|default({}) | combine( {hostvars[inventory_hostname]['ansible_'+item]['ipv6'].address : item} ) }}"
+      with_items:
+        - "{{ ansible_interfaces | select('match', '^(e.*)[0-9]+') | list }}"
+    - name: "Setup Primary Interface"
+      set_fact:
+        primary_interface: "{{ interface_map[network.ipv6.address] }}"
+      when: "interface_map[network.ipv6.address] is defined"
+  when: "primary_interface is not defined and network is defined and network.ipv6 is defined and network.ipv6.address is defined"
+
+- name: Set the primary network interface based on first interface with e
+  set_fact:
+    primary_interface: "{{ ansible_interfaces | select('match', '^(e.*)[0-9]+') | list | sort | first }}"
+  when: "primary_interface is not defined"
+
+- name: Set the primary IPv4 address if available based on given IPv4 address
+  set_fact:
+    primary_ipv4: "{{ network.ipv4 }}"
+  when: "network is defined and network.ipv4 is defined"
+
+- name: Set the primary IPv4 address if available based on primary interface
+  set_fact:
+    primary_ipv4: "{{ hostvars[inventory_hostname]['ansible_'+primary_interface]['ipv4'] }}"
+  when: "primary_ipv4 is not defined and hostvars[inventory_hostname]['ansible_'+primary_interface]['ipv4'] is defined"
+
+- name: Set the primary IPv6 address if available based on given IPv4 address
+  set_fact:
+    primary_ipv6: "{{ network.ipv6 }}"
+  when: "network is defined and network.ipv6 is defined"
+
+- name: Set the primary IPv6 address if available based on primary interface
+  set_fact:
+    primary_ipv6: "{{ hostvars[inventory_hostname]['ansible_'+primary_interface]['ipv6'] | selectattr('scope', 'equalto', 'global') | list | first }}"
+  when: "primary_ipv6 is not defined and hostvars[inventory_hostname]['ansible_'+primary_interface]['ipv6'] is defined"
+
+- name: Set the primary IPv6 CIDR address if available
+  set_fact:
+    primary_ipv6number: "{{ primary_ipv6.address.split(':') | last | int(base=16) }}"
+  when: "primary_ipv6 is defined"
+
+- name: Set the primary IPv6 CIDR address if available
+  set_fact:
+    primary_ipv6cidr: "{{ primary_ipv6.address+'/'+primary_ipv6.prefix }}"
+  when: "primary_ipv6 is defined"
+
+- name: Set the primary IPv6 network, if available
+  set_fact:
+    primary_ipv6net: "{{ primary_ipv6cidr | ipaddr('host/prefix') | ipaddr('network/prefix') }}"
+  when: "primary_ipv6cidr is defined"
+
+- name: Set the primary Docker IPv6 network, if IPv6 is available
+  set_fact:
+    docker_subnet: "{{ primary_ipv6net | ipsubnet(80,primary_ipv6number) }}"
+  when: "primary_ipv6net is defined"
